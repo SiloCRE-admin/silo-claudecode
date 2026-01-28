@@ -1,13 +1,17 @@
 import { getMe } from '@/lib/api/me'
-import { notFound, redirect } from 'next/navigation'
+import { notFound } from 'next/navigation'
 
 export default async function AdminPage() {
+  // Layout ensures we have authenticated team context
   const me = await getMe()
 
+  // me is guaranteed non-null by layout, but TypeScript doesn't know that
   if (!me) {
-    redirect('/login')
+    // This should never happen due to layout gating, but satisfies TypeScript
+    return null
   }
 
+  // Admin-specific check: must be god_admin
   if (!me.is_god_admin) {
     notFound()
   }

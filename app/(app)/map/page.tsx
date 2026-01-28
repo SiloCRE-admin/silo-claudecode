@@ -1,19 +1,13 @@
 import { getMe } from '@/lib/api/me'
-import { redirect } from 'next/navigation'
 
 export default async function MapPage() {
+  // Layout ensures we have authenticated team context
   const me = await getMe()
 
+  // me is guaranteed non-null by layout, but TypeScript doesn't know that
   if (!me) {
-    redirect('/login')
-  }
-
-  if (me.is_guest) {
-    redirect('/guest')
-  }
-
-  if (!me.team_id) {
-    redirect('/create-team')
+    // This should never happen due to layout gating, but satisfies TypeScript
+    return null
   }
 
   return (
