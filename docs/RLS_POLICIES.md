@@ -303,11 +303,65 @@ Same team-scoped pattern:
 
 ## 11. God Admin Boundary (Non-Negotiable)
 
-God Admin permissions apply **only** to:
-- `markets` / `submarkets`
-- `buildings` + moderation tables
+God Admin is limited to system-wide administration and building moderation. Access is strictly partitioned between account metadata / shared reference data (allowed) and team-private business data (denied).
 
-**God Admin must NOT access team-owned data.**
+### 11.1 God Admin: Allowed Access
+
+**Account Metadata (read-only):**
+- `teams` - team names, creation dates, status (for system administration)
+- `profiles` - user-team membership, roles (for user management)
+
+**Shared Reference Data (full CRUD):**
+- `markets` - system-defined market regions
+- `submarkets` - system-defined submarket regions
+
+**Building Layer (full CRUD):**
+- `buildings` - crowdsourced building specifications
+- `building_attributes` - current field values
+- `building_attribute_provenance` - field history and sources
+- `building_flags` - user-submitted data quality reports
+- `admin_review_queue` - moderation workflow
+- `locked_building_fields` - admin-protected fields
+
+### 11.2 God Admin: Explicitly Denied
+
+God Admin **cannot read or modify** any team-private business data:
+
+**Transaction Intelligence:**
+- `lease_comps` - team-private lease transaction data
+- `sale_comps` - team-private sale transaction data
+- `land_comps` - team-private land transaction data
+- `developments` - team-private development tracking
+- `market_chatter` - team-private market intelligence
+- `market_chatter_*` - junction tables (flags, buildings, contacts, markets, submarkets)
+
+**CRM & Contacts:**
+- `contacts` - team-private contact database
+
+**Asset Management:**
+- `portfolios` - team-owned portfolio groupings
+- `assets` - team-owned building assets
+- `suites` - rentable units
+- `vacancies` - vacant suite tracking
+- `prospects` - leasing prospects
+- `tours` - prospect tours
+- `lois` - letters of intent
+- `suite_budgets` - budget assumptions
+- `make_ready_projects` - suite preparation projects
+
+**Documents & Extraction:**
+- `documents` - team-private document storage
+- `document_links` - document-entity associations
+- `extraction_jobs` - AI extraction pipeline
+- `extraction_job_items` - extracted draft records
+
+**Provenance & Audit:**
+- `entity_field_provenance` - field-level lineage tracking
+- `audit_log` - immutable change history
+- `export_log` - export tracking
+
+**Map Privacy:**
+- `team_building_presence` - team-specific building data indicators
 
 ---
 

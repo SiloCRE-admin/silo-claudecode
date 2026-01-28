@@ -279,7 +279,7 @@ Common columns on comps:
 | status | enum(draft, active) | |
 | sale_date | date | |
 | sale_price_cents | bigint | |
-| acres_bps | integer | optional (or acres numeric) |
+| acres | numeric(12,2) | Land area in decimal acres |
 | created_at/updated_at/created_by/updated_by | | |
 | is_deleted | boolean | |
 | deleted_at | timestamptz | |
