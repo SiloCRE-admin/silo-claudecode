@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "validate:arch": "node scripts/validate-architecture-docs.js"
+    "validate:arch": "node scripts/validate-architecture-docs.js",
+    "check": "npm run lint && npm run validate:arch"
   },
   "dependencies": {
     "@supabase/auth-ui-react": "^0.4.7",
