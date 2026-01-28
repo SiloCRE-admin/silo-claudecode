@@ -28,7 +28,7 @@ Supabase (Postgres + PostGIS) is the authoritative datastore.
 
 ## 2. Core Principles
 
-- Team = tenant boundary (multi-tenant isolation)
+- Team = the isolation unit (billing + data boundary)
 - All team-owned data includes `team_id`
 - Row Level Security (RLS) enforced everywhere
 - No cross-team visibility except:

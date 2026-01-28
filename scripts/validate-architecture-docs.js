@@ -309,6 +309,57 @@ function validate() {
     'ARCHITECTURE must reference docs/RLS_POLICIES.md'
   );
 
+  // Check 10: Terminology - no Tenant=Team ambiguity
+  const violations = [];
+
+  // Helper function to check proximity of terms
+  function hasNearbyTerm(text, searchPhrase, nearbyTerms, maxDistance = 200) {
+    const lowerText = text.toLowerCase();
+    const lowerPhrase = searchPhrase.toLowerCase();
+    let pos = 0;
+
+    while ((pos = lowerText.indexOf(lowerPhrase, pos)) !== -1) {
+      const start = Math.max(0, pos - maxDistance);
+      const end = Math.min(lowerText.length, pos + lowerPhrase.length + maxDistance);
+      const context = lowerText.substring(start, end);
+
+      if (nearbyTerms.some(term => context.includes(term.toLowerCase()))) {
+        return true;
+      }
+      pos += 1;
+    }
+    return false;
+  }
+
+  // Check all docs for terminology violations
+  for (const [docName, content] of Object.entries(contents)) {
+    // Check for "tenant = team" or "team = tenant"
+    if (contains(content, 'tenant = team') || contains(content, 'tenant=team')) {
+      violations.push(`${docName}: contains "tenant = team"`);
+    }
+    if (contains(content, 'team = tenant') || contains(content, 'team=tenant')) {
+      violations.push(`${docName}: contains "team = tenant"`);
+    }
+
+    // Check for "tenant unit" near boundary-related terms
+    if (hasNearbyTerm(content, 'tenant unit', ['team', 'isolation', 'boundary'])) {
+      violations.push(`${docName}: contains "tenant unit" near boundary terminology`);
+    }
+
+    // Check for "tenant boundary" near isolation terms
+    if (hasNearbyTerm(content, 'tenant boundary', ['team', 'isolation'])) {
+      violations.push(`${docName}: contains "tenant boundary" near isolation terminology`);
+    }
+  }
+
+  check(
+    'Check 10: Terminology - no Tenant=Team ambiguity',
+    violations.length === 0,
+    violations.length > 0
+      ? `Found ${violations.length} violation(s): ${violations.join('; ')}. Use "Isolation unit = Team (billing + data boundary)" instead.`
+      : ''
+  );
+
   return !hasFailures;
 }
 

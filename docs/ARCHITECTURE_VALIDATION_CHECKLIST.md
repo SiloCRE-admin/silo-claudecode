@@ -169,6 +169,16 @@ Run this before:
 
 ---
 
+### 11. Terminology Drift Prevention
+
+**Rule**: No "Tenant = Team" ambiguity in any documentation
+**Source**: CLAUDE.md section 1, ARCHITECTURE section 5.1
+**Check**: Docs must NOT contain "tenant = team", "team = tenant", "tenant unit", or "tenant boundary" when referring to the isolation boundary
+**Rationale**: In CRE, "tenant" refers to the company leasing space (business entity). Using "tenant" for the isolation boundary creates confusion. Always use "Team" or "Isolation unit = Team (billing + data boundary)"
+**Allowed usage**: "tenant" may be used for CRE business entities (e.g., "tenant name", "tenant lease", "tenant directory") but never for the multi-tenancy isolation boundary
+
+---
+
 ## Automated Validation
 
 Run `npm run validate:arch` to execute automated checks for most of these rules.
