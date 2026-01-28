@@ -10,8 +10,10 @@
  * Exit code: 0 = all checks pass, non-zero = violations found
  */
 
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require('fs');
 const path = require('path');
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 // File paths
 const DOCS_DIR = path.join(__dirname, '..', 'docs');
@@ -32,7 +34,7 @@ let hasFailures = false;
 function readFile(filePath) {
   try {
     return fs.readFileSync(filePath, 'utf8');
-  } catch (err) {
+  } catch {
     return null;
   }
 }
