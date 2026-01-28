@@ -2,7 +2,7 @@
 
 Version: 1.1  
 Status: Living Document  
-Last Updated: YYYY-MM-DD
+Last Updated: 2026-01-28
 
 ---
 
@@ -10,15 +10,14 @@ Last Updated: YYYY-MM-DD
 
 This document defines:
 
-- All database entities (tables)
-- Key fields and types
-- Relationships
-- Ownership rules
-- Multi-tenant boundaries
-- Guest access model
-- Spatial data model
-- Audit, provenance, and export tracking
-- Data lifecycle enforcement
+- Database entities (tables)
+- Key fields + relationships
+- Ownership + tenancy boundaries
+- Guest access model (asset-scoped)
+- Spatial / map data model
+- Document linking
+- Extraction + provenance
+- Audit + export tracking
 
 The PRD defines *what exists*.  
 This document defines *how it is structured in the database*.
@@ -29,51 +28,52 @@ Supabase (Postgres + PostGIS) is the authoritative datastore.
 
 ## 2. Core Principles
 
-- Team = tenant
-- Users belong to exactly one team
-- All team-owned data contains `team_id`
-- Row Level Security (RLS) enforced on all CRUD operations
+- Team = tenant boundary (multi-tenant isolation)
+- All team-owned data includes `team_id`
+- Row Level Security (RLS) enforced everywhere
 - No cross-team visibility except:
-  - shared building specs
-  - reference tables
-- Asset management data always belongs to owner’s team
-- Guest access never uses team membership
-- Spatial data stored using PostGIS geography
-- All primary keys use UUID v7
-- Currency stored as integer cents
-- Percentages stored as integer basis points
-- Soft delete by default
-- Immutable audit logs
+  - shared building layer
+  - reference data (markets/submarkets)
+- Asset management data belongs to owner’s team
+- Guest users exist outside team membership and only access explicitly granted assets/suites
+- Spatial data stored in PostGIS using geography(Point, 4326)
+- Soft delete by default for team-owned entities (90-day retention per PRD)
 
 ---
 
 ## 3. Identity & Tenancy
 
-### profiles
+### teams
 
-| Field | Type |
-|------|------|
-| user_id | uuid (v7) PK |
-| team_id | uuid (v7) |
-| email | text |
-| role | enum(team_owner, team_admin, team_member, billing_contact) |
-| created_at | timestamptz |
-| updated_at | timestamptz |
-| created_by | uuid (v7) |
-| updated_by | uuid (v7) |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | DEFAULT uuid_v7() |
+| name | text | |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
+| created_by | uuid (v7) | references auth.users.id (or null for system) |
+| updated_by | uuid (v7) | references auth.users.id |
 
 ---
 
-### teams
+### profiles (canonical membership + role)
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) PK |
-| name | text |
-| created_at | timestamptz |
-| updated_at | timestamptz |
-| created_by | uuid (v7) |
-| updated_by | uuid (v7) |
+**Canonical rule (PRD):** one user belongs to exactly one team.
+
+| Field | Type | Notes |
+|------|------|------|
+| user_id | uuid PK | references auth.users.id |
+| team_id | uuid (v7) | references teams.id |
+| email | text | convenience cache |
+| role | enum(team_owner, team_admin, team_member, billing_contact) | |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
+| created_by | uuid (v7) | references auth.users.id |
+| updated_by | uuid (v7) | references auth.users.id |
+
+Constraints:
+- PK = user_id (one row per user)
+- profiles.team_id required (one team per user)
 
 ---
 
@@ -81,173 +81,208 @@ Supabase (Postgres + PostGIS) is the authoritative datastore.
 
 ### markets
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| name | text |
-
----
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| name | text | system-defined |
 
 ### submarkets
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| market_id | uuid (v7) |
-| name | text |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| market_id | uuid (v7) | FK → markets.id |
+| name | text | system-defined |
 
 ---
 
-## 5. Buildings (Shared Layer + Crowdsourcing)
+## 5. Buildings (Shared Layer)
 
-### buildings
+### buildings (shared)
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| name | text |
-| full_address_raw | text |
-| address_components | jsonb |
-| address_full_normalized | text |
-| city | text |
-| county | text |
-| state | text |
-| postal_code | text |
-| market_id | uuid (v7) |
-| submarket_id | uuid (v7) |
-| latitude | numeric(9,6) |
-| longitude | numeric(9,6) |
-| location_geog | geography(Point,4326) |
-| coordinate_source | enum(admin, user, google) |
-| coordinate_confirmed | boolean |
-| created_at | timestamptz |
-| updated_at | timestamptz |
-| created_by | uuid (v7) |
-| updated_by | uuid (v7) |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| name | text | |
+| full_address_raw | text | |
+| address_normalized | jsonb | |
+| address_components | jsonb | city/county/state/postal/etc |
+| city | text | |
+| county | text | |
+| state | text | |
+| postal_code | text | |
+| latitude | numeric(9,6) | |
+| longitude | numeric(9,6) | |
+| location_geog | geography(Point,4326) | PostGIS |
+| coordinate_source | enum(admin, user, google) | precedence handled by app/admin process |
+| coordinate_confirmed | boolean | |
+| building_sf | integer | |
+| clear_height | integer | |
+| year_built | integer | |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
+
+Indexes:
+- GIST(location_geog)
+
+Notes:
+- Buildings are shared/crowdsourced but moderated; never hard deleted.
 
 ---
 
-### building_attributes
+### building_attributes (shared “current value” per field)
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| building_id | uuid (v7) |
-| field_name | text |
-| value_json | jsonb |
-| value_text | text |
-| is_current | boolean |
-| created_at | timestamptz |
-| created_by | uuid (v7) |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| building_id | uuid (v7) | FK → buildings.id |
+| field_name | text | e.g., clear_height |
+| value_json | jsonb | typed value stored as json |
+| created_at | timestamptz | |
+| created_by | uuid | references auth.users.id |
 
 ---
 
 ### building_attribute_provenance
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| building_attribute_id | uuid (v7) |
-| source_type | enum(admin, user, ai, import) |
-| source_reference_id | uuid (v7) |
-| confidence_score | integer |
-| confirmed | boolean |
-| extracted_at | timestamptz |
-| created_at | timestamptz |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| building_attribute_id | uuid (v7) | FK → building_attributes.id |
+| source_type | enum(admin, user, ai, import) | |
+| source_reference_id | uuid | optional (doc/extraction/etc) |
+| confidence_score | integer | 0–100 optional |
+| created_at | timestamptz | |
 
 ---
 
 ### building_flags
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| building_id | uuid (v7) |
-| flagged_by_user_id | uuid (v7) |
-| field_name | text |
-| reason | text |
-| status | enum(open, resolved, rejected) |
-| created_at | timestamptz |
-| resolved_at | timestamptz |
-| resolved_by | uuid (v7) |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| building_id | uuid (v7) | FK → buildings.id |
+| flagged_by_user_id | uuid | references auth.users.id |
+| field_name | text | |
+| reason | text | |
+| status | enum(open, resolved, rejected) | |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
 
 ---
 
 ### admin_review_queue
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| building_id | uuid (v7) |
-| flag_id | uuid (v7) |
-| field_name | text |
-| proposed_building_attribute_id | uuid (v7) |
-| status | enum(pending, approved, rejected) |
-| decision_notes | text |
-| decided_at | timestamptz |
-| decided_by | uuid (v7) |
-| created_at | timestamptz |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| building_id | uuid (v7) | FK → buildings.id |
+| field_name | text | |
+| proposed_value_json | jsonb | |
+| status | enum(pending, approved, rejected) | |
+| decided_by | uuid | auth.users.id |
+| decided_at | timestamptz | |
+| created_at | timestamptz | |
 
 ---
 
 ### locked_building_fields
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| building_id | uuid (v7) |
-| field_name | text |
-| locked_value_json | jsonb |
-| locked_by | uuid (v7) |
-| locked_at | timestamptz |
-| is_active | boolean |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| building_id | uuid (v7) | FK → buildings.id |
+| field_name | text | |
+| is_active | boolean | |
+| locked_by | uuid | auth.users.id |
+| locked_at | timestamptz | |
 
 ---
 
-### team_building_presence
+### team_building_presence (map privacy)
 
-| Field | Type |
-|------|------|
-| team_id | uuid (v7) |
-| building_id | uuid (v7) |
-| has_any_data | boolean |
-| last_activity_at | timestamptz |
-| created_at | timestamptz |
+Purpose: prevent map leakage by ensuring pins only exist where a team has data.
+
+| Field | Type | Notes |
+|------|------|------|
+| team_id | uuid (v7) | FK → teams.id |
+| building_id | uuid (v7) | FK → buildings.id |
+| created_at | timestamptz | |
+
+PK:
+- (team_id, building_id)
 
 ---
 
 ## 6. Transactional Comps (Team Private)
 
+Common columns on comps:
+- team_id, building_id
+- status: draft/active
+- soft delete fields
+- created_by/updated_by + timestamps
+
 ### lease_comps
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| building_id | uuid (v7) |
-| tenant_name_raw | text |
-| tenant_name_normalized | text |
-| lease_sf | integer |
-| signed_date | date |
-| lease_start_date | date |
-| lease_end_date | date |
-| lease_term_months | integer |
-| rent_psf_cents | integer |
-| ti_allowance_cents | integer |
-| free_rent_months | integer |
-| status | enum(draft, active) |
-| is_deleted | boolean |
-| deleted_at | timestamptz |
-| created_at | timestamptz |
-| updated_at | timestamptz |
-| created_by | uuid (v7) |
-| updated_by | uuid (v7) |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | FK → teams.id |
+| building_id | uuid (v7) | FK → buildings.id |
+| status | enum(draft, active) | |
+| tenant_name_raw | text | |
+| tenant_name_normalized | text | indexed |
+| lease_sf | integer | |
+| signed_date | date | |
+| lease_start_date | date | actual or estimated |
+| lease_end_date | date | last day of month |
+| lease_term_months | integer | |
+| rent_psf_cents | integer | currency cents |
+| ti_allowance_cents | integer | currency cents |
+| free_rent_months | integer | |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
+| created_by | uuid | auth.users.id |
+| updated_by | uuid | auth.users.id |
+| is_deleted | boolean | default false |
+| deleted_at | timestamptz | |
 
 ---
 
-### sale_comps / land_comps
+### sale_comps
 
-Same structure pattern as lease_comps.
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| building_id | uuid (v7) | |
+| status | enum(draft, active) | |
+| sale_date | date | |
+| sale_price_cents | bigint | currency cents |
+| sale_price_psf_cents | integer | |
+| cap_rate_bps | integer | basis points |
+| buyer_name_raw | text | |
+| seller_name_raw | text | |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
+
+---
+
+### land_comps
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| parcel_id | uuid (v7) | optional future FK |
+| status | enum(draft, active) | |
+| sale_date | date | |
+| sale_price_cents | bigint | |
+| acres_bps | integer | optional (or acres numeric) |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
@@ -255,24 +290,20 @@ Same structure pattern as lease_comps.
 
 ### developments
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| building_id | uuid (v7) |
-| status | enum(planned, under_construction, delivering, delivered, stalled, cancelled) |
-| estimated_delivery_date | date |
-| developer | text |
-| size_sf | integer |
-| notes | text |
-| source | text |
-| active | boolean |
-| is_deleted | boolean |
-| deleted_at | timestamptz |
-| created_at | timestamptz |
-| updated_at | timestamptz |
-| created_by | uuid (v7) |
-| updated_by | uuid (v7) |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | FK → teams.id |
+| building_id | uuid (v7) | FK → buildings.id |
+| status | enum(planned, under_construction, delivering, delivered, stalled, cancelled) | |
+| estimated_delivery_date | date | nullable |
+| developer | text | |
+| size_sf | integer | nullable |
+| notes | text | |
+| active | boolean | |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
@@ -280,122 +311,251 @@ Same structure pattern as lease_comps.
 
 ### market_chatter
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| author_user_id | uuid (v7) |
-| body_text | text |
-| is_deleted | boolean |
-| deleted_at | timestamptz |
-| created_at | timestamptz |
-| updated_at | timestamptz |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| author_user_id | uuid | auth.users.id |
+| body_text | text | |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
+| created_by | uuid | auth.users.id |
+| updated_by | uuid | auth.users.id |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
 ### market_chatter_flags
 
-category enum values:
+| Field | Type | Notes |
+|------|------|------|
+| chatter_id | uuid (v7) | FK → market_chatter.id |
+| category | enum(lease, sale, development, tenant_movement, debt, ownership_change, distress, capital_markets, other) | |
 
-`lease, sale, development, tenant_movement, debt, ownership_change, distress, capital_markets, other`
-
-| Field | Type |
-|------|------|
-| chatter_id | uuid (v7) |
-| category | enum |
-
----
-
-### market_chatter_buildings / contacts / markets / submarkets
-
-| Field | Type |
-|------|------|
-| chatter_id | uuid (v7) |
-| related_id | uuid (v7) |
+PK:
+- (chatter_id, category)
 
 ---
 
-## 9. CRM
+### market_chatter_buildings
+
+| Field | Type | Notes |
+|------|------|------|
+| chatter_id | uuid (v7) | FK → market_chatter.id |
+| building_id | uuid (v7) | FK → buildings.id |
+
+PK:
+- (chatter_id, building_id)
+
+---
+
+### market_chatter_contacts
+
+| Field | Type | Notes |
+|------|------|------|
+| chatter_id | uuid (v7) | FK → market_chatter.id |
+| contact_id | uuid (v7) | FK → contacts.id |
+
+PK:
+- (chatter_id, contact_id)
+
+---
+
+### market_chatter_markets / market_chatter_submarkets
+
+| Field | Type | Notes |
+|------|------|------|
+| chatter_id | uuid (v7) | FK → market_chatter.id |
+| market_id | uuid (v7) | FK → markets.id |
+
+and
+
+| Field | Type | Notes |
+|------|------|------|
+| chatter_id | uuid (v7) | FK → market_chatter.id |
+| submarket_id | uuid (v7) | FK → submarkets.id |
+
+PKs:
+- (chatter_id, market_id)
+- (chatter_id, submarket_id)
+
+---
+
+## 9. CRM (Team Private)
 
 ### contacts
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| name_raw | text |
-| email | text |
-| company_raw | text |
-| company_normalized | text |
-| is_deleted | boolean |
-| deleted_at | timestamptz |
-| created_at | timestamptz |
-| updated_at | timestamptz |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| name_raw | text | |
+| email | text | |
+| company_raw | text | |
+| company_normalized | text | |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
-## 10. Asset Management
+## 10. Asset Management (Owned by Team; Guests by Grant)
+
+Hierarchy: Portfolio → Asset(Building) → Suite → Vacancy/LOI/etc
 
 ### portfolios
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| name | text |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| name | text | |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
-### assets
+### assets (building in a portfolio)
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| portfolio_id | uuid (v7) |
-| building_id | uuid (v7) |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| portfolio_id | uuid (v7) | FK → portfolios.id |
+| building_id | uuid (v7) | FK → buildings.id |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
 ### suites
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| asset_id | uuid (v7) |
-| suite_name | text |
-| square_feet | integer |
-| status | enum(occupied, vacant, off_market) |
+Suite status per PRD (detailed).
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| asset_id | uuid (v7) | FK → assets.id |
+| suite_name | text | |
+| square_feet | integer | |
+| status | enum(occupied_stable, occupied_known_vacate, occupied_renewal_likely, occupied_renewal_unlikely, occupied_renewal_pending, occupied_renewal_unknown, vacant_available, vacant_signed_loi, vacant_leased_not_commenced, other_off_market) | |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
-### vacancies / prospects / tours / lois / suite_budgets / make_ready_projects
+### vacancies
 
-Follow same ownership pattern with team resolution via portfolio.
-
-Monetary fields stored as `_cents`.
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| suite_id | uuid (v7) | FK → suites.id |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
-## 11. Guest Access
+### prospects
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| vacancy_id | uuid (v7) | FK → vacancies.id |
+| contact_id | uuid (v7) | FK → contacts.id |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
+
+---
+
+### tours
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| prospect_id | uuid (v7) | FK → prospects.id |
+| tour_date | date | |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
+
+---
+
+### lois
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| vacancy_id | uuid (v7) | FK → vacancies.id |
+| status | text | PRD-defined lifecycle (enum later) |
+| direction | text | proposal/counter/etc (enum later) |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
+
+---
+
+### suite_budgets
+
+| Field | Type | Notes |
+|------|------|------|
+| suite_id | uuid (v7) PK | FK → suites.id |
+| budget_rent_psf_cents | integer | |
+| budget_ti_cents | integer | |
+| downtime_months | integer | |
+| created_at/updated_at/created_by/updated_by | | |
+
+---
+
+### make_ready_projects
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| suite_id | uuid (v7) | FK → suites.id |
+| description | text | |
+| cost_cents | integer | |
+| status | text | enum later |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
+
+---
+
+## 11. Guest Access (Asset-Scoped; No Team Membership)
 
 ### guest_users
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| email | text |
+| Field | Type | Notes |
+|------|------|------|
+| user_id | uuid PK | references auth.users.id |
+| email | text | |
+| created_at | timestamptz | |
 
 ---
 
 ### guest_access
 
-| Field | Type |
-|------|------|
-| guest_user_id | uuid (v7) |
-| portfolio_id | uuid (v7) |
-| asset_id | uuid (v7) |
-| suite_id | uuid (v7) |
-| permission | enum(owner, broker, property_manager) |
+Purpose: grant guest access at portfolio, asset, or suite scope.
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| guest_user_id | uuid | FK → guest_users.user_id |
+| portfolio_id | uuid (v7) nullable | FK → portfolios.id |
+| asset_id | uuid (v7) nullable | FK → assets.id |
+| suite_id | uuid (v7) nullable | FK → suites.id |
+| permission | enum(owner, broker, property_manager) | |
+| created_at | timestamptz | |
+| created_by | uuid | auth.users.id |
+
+Constraints:
+- At least one of (portfolio_id, asset_id, suite_id) must be non-null
+- Uniqueness recommended on (guest_user_id, portfolio_id, asset_id, suite_id)
 
 ---
 
@@ -403,165 +563,163 @@ Monetary fields stored as `_cents`.
 
 ### documents
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| storage_bucket | text |
-| storage_path | text |
-| file_name | text |
-| mime_type | text |
-| file_size_bytes | bigint |
-| sha256 | text |
-| capture_source | enum(upload, email, bulk_import, voice, photo_ocr) |
-| status | enum(active, processing, failed) |
-| is_deleted | boolean |
-| deleted_at | timestamptz |
-| created_at | timestamptz |
-| updated_at | timestamptz |
-| created_by | uuid (v7) |
-| updated_by | uuid (v7) |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| storage_bucket | text | optional |
+| storage_path | text | optional |
+| file_path | text | optional legacy path |
+| file_name | text | |
+| mime_type | text | |
+| file_size_bytes | bigint | |
+| sha256 | text | |
+| capture_source | enum(upload, email, bulk_import, voice, photo_ocr) | |
+| status | enum(active, processing, failed) | |
+| created_at/updated_at/created_by/updated_by | | |
+| is_deleted | boolean | |
+| deleted_at | timestamptz | |
 
 ---
 
-### document_links
+### document_links (generic document ↔ entity linking)
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| document_id | uuid (v7) |
-| entity_type | text |
-| entity_id | uuid (v7) |
-| created_at | timestamptz |
+Allows one document to link to many entities and vice versa.
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| document_id | uuid (v7) | FK → documents.id |
+| entity_type | text | e.g., lease_comps |
+| entity_id | uuid (v7) | |
+| created_at | timestamptz | |
+| created_by | uuid | auth.users.id |
+
+Indexes:
+- (team_id, entity_type, entity_id)
+- (team_id, document_id)
 
 ---
 
-## 13. Extraction & Bulk Import
+## 13. Extraction (Team Private)
 
 ### extraction_jobs
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| job_type | enum(single_document, bulk_batch, email_ingest, voice, ocr) |
-| status | enum(queued, running, needs_review, committed, failed, cancelled) |
-| source_document_id | uuid (v7) |
-| source_hash | text |
-| error_message | text |
-| created_at | timestamptz |
-| updated_at | timestamptz |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| job_type | enum(single_document, bulk_batch, email_ingest, voice, ocr) | |
+| status | enum(queued, running, needs_review, committed, failed, cancelled) | |
+| source_document_id | uuid (v7) nullable | FK → documents.id |
+| source_hash | text | idempotency |
+| error_message | text | |
+| created_at/updated_at/created_by/updated_by | | |
 
 ---
 
 ### extraction_job_items
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| extraction_job_id | uuid (v7) |
-| entity_type | text |
-| status | enum(draft, accepted, rejected) |
-| duplicate_of_entity_id | uuid (v7) |
-| draft_payload | jsonb |
-| created_at | timestamptz |
+Draft extracted payloads (no auto-commit).
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| extraction_job_id | uuid (v7) | FK → extraction_jobs.id |
+| entity_type | text | e.g., lease_comps |
+| status | enum(draft, accepted, rejected) | |
+| duplicate_of_entity_id | uuid (v7) nullable | |
+| draft_payload | jsonb | |
+| created_at | timestamptz | |
+| created_by | uuid | auth.users.id |
 
 ---
+
+## 14. Entity Field Provenance (Team Private)
 
 ### entity_field_provenance
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| entity_type | text |
-| entity_id | uuid (v7) |
-| field_name | text |
-| source_type | enum(user, ai, import, document, system) |
-| source_reference_id | uuid (v7) |
-| confidence_score | integer |
-| overridden_by_user | boolean |
-| extracted_at | timestamptz |
-| created_at | timestamptz |
+Tracks field-level lineage and confidence across entities.
+
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| entity_type | text | |
+| entity_id | uuid (v7) | |
+| field_name | text | |
+| source_type | enum(user, ai, import, document, system) | |
+| source_reference_id | uuid (v7) nullable | e.g., documents.id or extraction_job_items.id |
+| confidence_score | integer nullable | 0–100 |
+| overridden_by_user | boolean | default false |
+| extracted_at | timestamptz nullable | |
+| created_at | timestamptz | |
+
+Indexes:
+- (team_id, entity_type, entity_id)
+- (team_id, source_type, source_reference_id)
 
 ---
 
-## 14. Audit & Export Governance
+## 15. Audit & Export
 
-### audit_log
+### audit_log (append-only)
 
-| Field | Type |
-|------|------|
-| id | uuid (v7) |
-| team_id | uuid (v7) |
-| actor_user_id | uuid (v7) |
-| entity_type | text |
-| entity_id | uuid (v7) |
-| action | enum(insert, update, delete, restore, export) |
-| before_json | jsonb |
-| after_json | jsonb |
-| created_at | timestamptz |
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| actor_user_id | uuid | auth.users.id |
+| table_name | text | |
+| record_id | uuid (v7) | |
+| action | enum(insert, update, delete, restore, export) | |
+| old_value | jsonb | |
+| new_value | jsonb | |
+| created_at | timestamptz | |
 
----
-
-### export_requests / export_approvals / export_artifacts / export_log
-
-As defined in architecture section.
+Notes:
+- No UPDATE/DELETE allowed on audit_log.
 
 ---
 
-## 15. Spatial Indexing
+### export_log
 
-- buildings.location_geog → GIST
-- team_building_presence(team_id, building_id)
-- comps(team_id, building_id)
-- address_full_normalized
-- tenant_name_normalized
-
----
-
-## 16. RLS Expectations (Summary)
-
-| Table | Rule |
-|-------|------|
-| lease_comps | team_id = auth.team |
-| developments | team_id |
-| market_chatter | team_id |
-| contacts | team_id |
-| documents | team_id |
-| portfolios | team_id |
-| buildings | shared read; admin write |
-| building_attributes | shared read; admin controlled |
-| locked_building_fields | admin only |
-| team_building_presence | team scoped |
-| audit_log | team scoped |
-| export_* | team scoped |
-
-God Admin has access only to:
-
-- buildings
-- building_attributes
-- building_flags
-- admin_review_queue
-- locked_building_fields
-- markets/submarkets
+| Field | Type | Notes |
+|------|------|------|
+| id | uuid (v7) PK | |
+| team_id | uuid (v7) | |
+| user_id | uuid | auth.users.id |
+| export_type | text | pdf/excel/csv/link/etc |
+| record_count | integer | |
+| created_at | timestamptz | |
 
 ---
 
-## 17. Naming & Formatting Standards
+## 16. Indexing & Performance (Minimum Required)
 
-- snake_case tables and columns
-- enums lowercase_snake_case
-- UUID v7 primary keys
-- currency: integer cents
-- percentages: integer basis points
-- ISO dates
-- audit fields on all mutable tables:
-  - created_at, updated_at, created_by, updated_by
-- soft delete fields:
-  - is_deleted, deleted_at
+Mandatory indexes (per PRD):
+- team_id on all team-owned tables
+- (team_id, building_id) where applicable (comps, developments, chatter joins)
+- tenant_name_normalized on lease comps
+- address normalization indexes as needed
+- GIST(location_geog) on buildings
+- portfolio_id on assets
+- lease_end_date on lease comps
+
+---
+
+## 17. Formatting & Data Standards
+
+- Currency: integer cents
+- Percentages: basis points (integer)
+- Dates: ISO date (date)
+- SF: integer
+- Enums: lowercase_snake_case
+- IDs: UUID v7 (default uuid_v7() function in migrations)
+- Audit columns for team-owned tables:
+  - created_at, updated_at, created_by, updated_by, team_id, is_deleted, deleted_at
 
 ---
 
