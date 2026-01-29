@@ -64,18 +64,43 @@ export default function CreateAssetForm({ userId, teamId }: CreateAssetFormProps
         throw new Error('Suite name is required')
       }
 
-      // 1. Create building (shared layer)
-      const { data: building, error: buildingError } = await supabase
-        .from('buildings')
-        .insert({
-          name: buildingName.trim() || null,
-          full_address_raw: address.trim(),
-        })
-        .select()
-        .single()
+      // 1. Find or create building (shared layer)
+      const addressTrimmed = address.trim()
 
-      if (buildingError) {
-        throw new Error(`Failed to create building: ${buildingError.message}`)
+      // Try to find existing building by address (case-insensitive)
+      const { data: existingBuildings } = await supabase
+        .from('buildings')
+        .select('id')
+        .ilike('full_address_raw', addressTrimmed)
+        .limit(1)
+
+      let building: { id: string }
+
+      if (existingBuildings && existingBuildings.length > 0) {
+        // Reuse existing building
+        building = existingBuildings[0]
+      } else {
+        // Create new building
+        const { data: newBuilding, error: buildingError } = await supabase
+          .from('buildings')
+          .insert({
+            name: buildingName.trim() || null,
+            full_address_raw: addressTrimmed,
+          })
+          .select('id')
+          .single()
+
+        if (buildingError) {
+          // Check if it's a permission error
+          if (buildingError.code === 'PGRST301' || buildingError.message.includes('permission')) {
+            throw new Error(
+              'Unable to create building. Buildings are managed by administrators. Please contact support to add this building to the system first.'
+            )
+          }
+          throw new Error(`Failed to create building: ${buildingError.message}`)
+        }
+
+        building = newBuilding
       }
 
       // 2. Create portfolio (team-owned)
