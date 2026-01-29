@@ -290,24 +290,6 @@ function AssetMgmtPinCard({ assetDetail }: { assetDetail: AssetDetail | null }) 
               <span className="font-medium text-gray-600">Portfolio:</span>{' '}
               <span className="text-gray-900">{assetDetail.portfolio_name}</span>
             </div>
-            {assetDetail.building_sf && (
-              <div>
-                <span className="font-medium text-gray-600">Building SF:</span>{' '}
-                <span className="text-gray-900">{assetDetail.building_sf.toLocaleString()}</span>
-              </div>
-            )}
-            {assetDetail.clear_height && (
-              <div>
-                <span className="font-medium text-gray-600">Clear Height:</span>{' '}
-                <span className="text-gray-900">{assetDetail.clear_height} ft</span>
-              </div>
-            )}
-            {assetDetail.year_built && (
-              <div>
-                <span className="font-medium text-gray-600">Year Built:</span>{' '}
-                <span className="text-gray-900">{assetDetail.year_built}</span>
-              </div>
-            )}
           </div>
         </section>
 

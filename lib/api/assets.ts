@@ -22,9 +22,6 @@ export interface AssetDetail {
   portfolio_name: string
   building_name: string | null
   building_address: string | null
-  building_sf: number | null
-  clear_height: number | null
-  year_built: number | null
   suites: {
     id: string
     suite_name: string
@@ -75,7 +72,6 @@ export async function getTeamAssets(): Promise<TeamAsset[]> {
         full_address_raw
       )
     `)
-    .eq('is_deleted', false)
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -93,7 +89,6 @@ export async function getTeamAssets(): Promise<TeamAsset[]> {
     .from('suites')
     .select('asset_id')
     .in('asset_id', assetIds)
-    .eq('is_deleted', false)
 
   // Count suites per asset
   const suiteCountMap = new Map<string, number>()
@@ -156,14 +151,10 @@ export async function getAssetDetail(assetId: string): Promise<AssetDetail | nul
       ),
       buildings!inner (
         name,
-        full_address_raw,
-        building_sf,
-        clear_height,
-        year_built
+        full_address_raw
       )
     `)
     .eq('id', assetId)
-    .eq('is_deleted', false)
     .single()
 
   if (error || !asset) {
@@ -175,16 +166,12 @@ export async function getAssetDetail(assetId: string): Promise<AssetDetail | nul
     .from('suites')
     .select('id, suite_name, status, square_feet')
     .eq('asset_id', assetId)
-    .eq('is_deleted', false)
     .order('suite_name', { ascending: true })
 
   const portfolio = asset.portfolios as unknown as { name: string } | null
   const building = asset.buildings as unknown as {
     name: string | null
     full_address_raw: string | null
-    building_sf: number | null
-    clear_height: number | null
-    year_built: number | null
   } | null
 
   return {
@@ -192,9 +179,6 @@ export async function getAssetDetail(assetId: string): Promise<AssetDetail | nul
     portfolio_name: portfolio?.name || 'Unknown Portfolio',
     building_name: building?.name || null,
     building_address: building?.full_address_raw || null,
-    building_sf: building?.building_sf || null,
-    clear_height: building?.clear_height || null,
-    year_built: building?.year_built || null,
     suites: suites || [],
   }
 }
