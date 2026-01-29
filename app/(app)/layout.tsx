@@ -1,5 +1,6 @@
 import { getMe } from '@/lib/api/me'
 import { redirect } from 'next/navigation'
+import AppNav from './_components/AppNav'
 
 /**
  * App layout - enforces authenticated + team context
@@ -31,6 +32,11 @@ export default async function AppLayout({
     redirect('/create-team')
   }
 
-  // User has valid team context - render children
-  return children
+  // User has valid team context - render nav + children
+  return (
+    <>
+      <AppNav />
+      {children}
+    </>
+  )
 }
