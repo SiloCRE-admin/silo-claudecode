@@ -1,10 +1,11 @@
 import { getMe } from '@/lib/api/me'
+import { getTeamAssets, getAssetDetail, type AssetDetail } from '@/lib/api/assets'
 import Link from 'next/link'
 
 type MapMode = 'market_intel' | 'asset_mgmt'
 
 interface MapPageProps {
-  searchParams: Promise<{ mode?: string }>
+  searchParams: Promise<{ mode?: string; asset_id?: string }>
 }
 
 export default async function MapPage({ searchParams }: MapPageProps) {
@@ -19,6 +20,13 @@ export default async function MapPage({ searchParams }: MapPageProps) {
 
   const params = await searchParams
   const mode: MapMode = params.mode === 'asset_mgmt' ? 'asset_mgmt' : 'market_intel'
+  const selectedAssetId = params.asset_id
+
+  // Fetch assets only in asset_mgmt mode
+  const assets = mode === 'asset_mgmt' ? await getTeamAssets() : []
+
+  // Fetch selected asset detail if asset_id is provided
+  const assetDetail = selectedAssetId ? await getAssetDetail(selectedAssetId) : null
 
   return (
     <div className="flex h-screen flex-col">
@@ -60,9 +68,47 @@ export default async function MapPage({ searchParams }: MapPageProps) {
               {mode === 'market_intel' ? 'Buildings' : 'Portfolio Assets'}
             </h2>
             <div className="mt-4 space-y-2">
-              <div className="rounded border border-gray-200 p-3 text-sm text-gray-500">
-                List placeholder - buildings/assets will appear here
-              </div>
+              {mode === 'asset_mgmt' ? (
+                assets.length > 0 ? (
+                  assets.map((asset) => (
+                    <Link
+                      key={asset.asset_id}
+                      href={`/map?mode=asset_mgmt&asset_id=${asset.asset_id}`}
+                      className={`block rounded border p-3 text-sm transition-colors ${
+                        selectedAssetId === asset.asset_id
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 hover:border-blue-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className="font-medium text-gray-900">
+                        {asset.building_name || asset.building_address || 'Unnamed Building'}
+                      </div>
+                      {asset.building_name && asset.building_address && (
+                        <div className="mt-1 text-xs text-gray-500 truncate">
+                          {asset.building_address}
+                        </div>
+                      )}
+                      <div className="mt-2 text-xs text-gray-500">
+                        {asset.suite_count} {asset.suite_count === 1 ? 'suite' : 'suites'}
+                      </div>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="rounded border border-gray-200 p-3 text-center">
+                    <p className="text-sm text-gray-500">No assets yet</p>
+                    <Link
+                      href="/assets/new"
+                      className="mt-2 inline-block text-xs text-blue-600 hover:text-blue-700"
+                    >
+                      Create your first asset
+                    </Link>
+                  </div>
+                )
+              ) : (
+                <div className="rounded border border-gray-200 p-3 text-sm text-gray-500">
+                  List placeholder - buildings will appear here
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -84,7 +130,7 @@ export default async function MapPage({ searchParams }: MapPageProps) {
           {mode === 'market_intel' ? (
             <MarketIntelPinCard />
           ) : (
-            <AssetMgmtPinCard />
+            <AssetMgmtPinCard assetDetail={assetDetail} />
           )}
         </div>
       </div>
@@ -195,11 +241,37 @@ function MarketIntelPinCard() {
   )
 }
 
-function AssetMgmtPinCard() {
+function AssetMgmtPinCard({ assetDetail }: { assetDetail: AssetDetail | null }) {
+  if (!assetDetail) {
+    return (
+      <div className="p-4">
+        <h2 className="text-lg font-semibold text-gray-900">Asset Management</h2>
+        <div className="mt-8 text-center">
+          <div className="text-6xl text-gray-300">📍</div>
+          <p className="mt-4 text-sm text-gray-500">
+            Select an asset from the list to view details
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  // Format suite status for display
+  const formatSuiteStatus = (status: string) => {
+    return status
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
+  const topSuites = assetDetail.suites.slice(0, 3)
+
   return (
     <div className="p-4">
       <h2 className="text-lg font-semibold text-gray-900">Asset Management</h2>
-      <p className="mt-1 text-xs text-gray-500">Pin detail card placeholder</p>
+      <p className="mt-1 text-xs text-gray-500">
+        {assetDetail.building_name || assetDetail.building_address || 'Asset Details'}
+      </p>
 
       <div className="mt-4 space-y-4">
         {/* Building Info */}
@@ -208,79 +280,69 @@ function AssetMgmtPinCard() {
           <div className="mt-2 space-y-1 text-sm">
             <div>
               <span className="font-medium text-gray-600">Name:</span>{' '}
-              <span className="text-gray-900">[Building Name]</span>
+              <span className="text-gray-900">{assetDetail.building_name || 'N/A'}</span>
             </div>
             <div>
               <span className="font-medium text-gray-600">Address:</span>{' '}
-              <span className="text-gray-900">[Address]</span>
+              <span className="text-gray-900">{assetDetail.building_address || 'N/A'}</span>
             </div>
             <div>
               <span className="font-medium text-gray-600">Portfolio:</span>{' '}
-              <span className="text-gray-900">[Portfolio]</span>
+              <span className="text-gray-900">{assetDetail.portfolio_name}</span>
             </div>
-            <div>
-              <span className="font-medium text-gray-600">Building SF:</span>{' '}
-              <span className="text-gray-900">[SF]</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-600">Clear Height:</span>{' '}
-              <span className="text-gray-900">[Height]</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-600">Year Built:</span>{' '}
-              <span className="text-gray-900">[Year]</span>
-            </div>
+            {assetDetail.building_sf && (
+              <div>
+                <span className="font-medium text-gray-600">Building SF:</span>{' '}
+                <span className="text-gray-900">{assetDetail.building_sf.toLocaleString()}</span>
+              </div>
+            )}
+            {assetDetail.clear_height && (
+              <div>
+                <span className="font-medium text-gray-600">Clear Height:</span>{' '}
+                <span className="text-gray-900">{assetDetail.clear_height} ft</span>
+              </div>
+            )}
+            {assetDetail.year_built && (
+              <div>
+                <span className="font-medium text-gray-600">Year Built:</span>{' '}
+                <span className="text-gray-900">{assetDetail.year_built}</span>
+              </div>
+            )}
           </div>
         </section>
 
-        {/* Occupancy */}
+        {/* Suite Summary */}
         <section className="border-t border-gray-200 pt-4">
-          <h3 className="text-sm font-semibold text-gray-700">Occupancy</h3>
-          <div className="mt-2 space-y-1 text-sm">
-            <div>
-              <span className="font-medium text-gray-600">% Occupied:</span>{' '}
-              <span className="text-gray-900">[%]</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-600">WALT:</span>{' '}
-              <span className="text-gray-900">[Years]</span>
-            </div>
+          <h3 className="text-sm font-semibold text-gray-700">Suites</h3>
+          <div className="mt-2 text-sm">
+            <span className="font-medium text-gray-600">Total:</span>{' '}
+            <span className="text-gray-900">{assetDetail.suites.length}</span>
           </div>
         </section>
 
-        {/* Acquisition */}
-        <section className="border-t border-gray-200 pt-4">
-          <h3 className="text-sm font-semibold text-gray-700">Acquisition</h3>
-          <div className="mt-2 space-y-1 text-sm">
-            <div>
-              <span className="font-medium text-gray-600">Purchase Price:</span>{' '}
-              <span className="text-gray-900">[$]</span>
+        {/* Top 3 Suites */}
+        {topSuites.length > 0 && (
+          <section className="border-t border-gray-200 pt-4">
+            <h3 className="text-sm font-semibold text-gray-700">
+              {assetDetail.suites.length <= 3 ? 'All Suites' : 'Top 3 Suites'}
+            </h3>
+            <div className="mt-2 space-y-2">
+              {topSuites.map((suite, index) => (
+                <div key={suite.id} className="rounded bg-gray-50 p-2 text-sm">
+                  <div className="font-medium text-gray-900">
+                    {index + 1}. {suite.suite_name}
+                  </div>
+                  <div className="mt-1 text-xs text-gray-600">
+                    {formatSuiteStatus(suite.status)}
+                    {suite.square_feet && (
+                      <span className="ml-2">• {suite.square_feet.toLocaleString()} SF</span>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div>
-              <span className="font-medium text-gray-600">Acquisition Date:</span>{' '}
-              <span className="text-gray-900">[Date]</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Top Tenants */}
-        <section className="border-t border-gray-200 pt-4">
-          <h3 className="text-sm font-semibold text-gray-700">Top 3 Tenants</h3>
-          <div className="mt-2 space-y-2">
-            <div className="rounded bg-gray-50 p-2 text-sm">
-              <div className="font-medium text-gray-900">1. [Tenant Name]</div>
-              <div className="text-xs text-gray-500">[SF] • [Lease expiry]</div>
-            </div>
-            <div className="rounded bg-gray-50 p-2 text-sm">
-              <div className="font-medium text-gray-900">2. [Tenant Name]</div>
-              <div className="text-xs text-gray-500">[SF] • [Lease expiry]</div>
-            </div>
-            <div className="rounded bg-gray-50 p-2 text-sm">
-              <div className="font-medium text-gray-900">3. [Tenant Name]</div>
-              <div className="text-xs text-gray-500">[SF] • [Lease expiry]</div>
-            </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* Quick Actions */}
         <section className="border-t border-gray-200 pt-4">
@@ -290,7 +352,7 @@ function AssetMgmtPinCard() {
               View Full Details
             </button>
             <button className="w-full rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Add Tenant
+              Add Suite
             </button>
             <button className="w-full rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
               Export Report
