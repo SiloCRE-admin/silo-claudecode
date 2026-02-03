@@ -246,6 +246,7 @@ Common columns on comps:
 | updated_by | uuid | auth.users.id |
 | is_deleted | boolean | default false |
 | deleted_at | timestamptz | |
+Implementation note (v1): Completeness is currently **derived in the application**; completeness/assignment fields described in `docs/LEASE_COMP.md` are **not persisted** on `lease_comps` until an explicit migration is introduced.
 
 ---
 
